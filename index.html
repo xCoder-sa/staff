@@ -154,25 +154,8 @@
 </div>
 
 <script>
-    let db;
-    const request = indexedDB.open('EmployeeDB', 1);
-
-    request.onupgradeneeded = function(event) {
-        db = event.target.result;
-        const objectStore = db.createObjectStore('employees', { keyPath: 'employeeId' });
-        objectStore.createIndex('name', 'name', { unique: false });
-    };
-
-    request.onsuccess = function(event) {
-        db = event.target.result;
-        loadEmployees();
-    };
-
-    request.onerror = function(event) {
-        console.error('Database error: ' + event.target.errorCode);
-    };
-
     document.addEventListener('DOMContentLoaded', function() {
+        loadEmployees();
         addDaysRow();
     });
 
@@ -258,41 +241,22 @@
                     this.classList.remove('red');
                 }
                 calculateHours(newRow);
-                saveEmployee({
-                    employeeId,
-                    employeeName,
-                    employeeJob,
-                    requiredHours,
-                    totalShifts: cellTotalShifts.querySelector('.total-shifts').innerHTML,
-                    actualHours: cellActualHours.querySelector('.actual-hours').innerHTML,
-                    hourDiff: cellHourDiff.querySelector('.hour-diff').innerHTML,
-                    shifts: cells.map(cell => cell.innerHTML)
-                });
+                saveEmployees();
             });
         });
 
         calculateHours(newRow);
-        saveEmployee({
-            employeeId,
-            employeeName,
-            employeeJob,
-            requiredHours,
-            totalShifts: cellTotalShifts.querySelector('.total-shifts').innerHTML,
-            actualHours: cellActualHours.querySelector('.actual-hours').innerHTML,
-            hourDiff: cellHourDiff.querySelector('.hour-diff').innerHTML,
-            shifts: cells.map(cell => cell.innerHTML)
-        });
+        saveEmployees();
     }
 
     function deleteEmployee(button) {
         var row = button.parentNode.parentNode;
         var hiddenRow = row.nextElementSibling;
-        var employeeId = row.cells[0].innerHTML;
         row.remove();
         if (hiddenRow && hiddenRow.classList.contains('hidden-row')) {
             hiddenRow.remove();
         }
-        deleteEmployeeFromDB(employeeId);
+        saveEmployees();
     }
 
     function calculateHours(row) {
@@ -312,132 +276,130 @@
         row.cells[37].querySelector('.hour-diff').innerHTML = hourDiff;
     }
 
-    function saveEmployee(employee) {
-        const transaction = db.transaction(['employees'], 'readwrite');
-        const objectStore = transaction.objectStore('employees');
-        const request = objectStore.put(employee);
-        request.onsuccess = function(event) {
-            console.log('Employee saved successfully.');
-        };
-        request.onerror = function(event) {
-            console.error('Error saving employee: ', event.target.errorCode);
-        };
-    }
+    function saveEmployees() {
+        var table = document.getElementById('employeeTable').getElementsByTagName('tbody')[0];
+        var employees = [];
+        for (var i = 0; i < table.rows.length; i++) {
+            var row = table.rows[i];
+            if (row.classList.contains('hidden-row')) {
+                continue;
+            }
+            var employee = {
+                employeeId: row.cells[0].innerHTML,
+                employeeName: row.cells[1].innerHTML,
+                employeeJob: row.cells[2].innerHTML,
+                totalShifts: row.cells[34].querySelector('.total-shifts').innerHTML,
+                requiredHours: row.cells[35].innerHTML,
+                actualHours: row.cells[36].querySelector('.actual-hours').innerHTML,
+                hourDiff: row.cells[37].querySelector('.hour-diff').innerHTML,
+                shifts: []
+            };
+            for (var j = 3; j < 34; j++) {
+                employee.shifts.push(row.cells[j].innerHTML);
+            }
+            employees.push(employee);
+        }
 
-    function deleteEmployeeFromDB(employeeId) {
-        const transaction = db.transaction(['employees'], 'readwrite');
-        const objectStore = transaction.objectStore('employees');
-        const request = objectStore.delete(employeeId);
-        request.onsuccess = function(event) {
-            console.log('Employee deleted successfully.');
-        };
-        request.onerror = function(event) {
-            console.error('Error deleting employee: ', event.target.errorCode);
-        };
+        var xmlDoc = document.implementation.createDocument("", "", null);
+        var root = xmlDoc.createElement("employees");
+
+        employees.forEach(function(employee) {
+            var employeeElement = xmlDoc.createElement("employee");
+
+            var employeeId = xmlDoc.createElement("employeeId");
+            employeeId.textContent = employee.employeeId;
+            employeeElement.appendChild(employeeId);
+
+            var employeeName = xmlDoc.createElement("employeeName");
+            employeeName.textContent = employee.employeeName;
+            employeeElement.appendChild(employeeName);
+
+            var employeeJob = xmlDoc.createElement("employeeJob");
+            employeeJob.textContent = employee.employeeJob;
+            employeeElement.appendChild(employeeJob);
+
+            var requiredHours = xmlDoc.createElement("requiredHours");
+            requiredHours.textContent = employee.requiredHours;
+            employeeElement.appendChild(requiredHours);
+
+            var actualHours = xmlDoc.createElement("actualHours");
+            actualHours.textContent = employee.actualHours;
+            employeeElement.appendChild(actualHours);
+
+            var hourDiff = xmlDoc.createElement("hourDiff");
+            hourDiff.textContent = employee.hourDiff;
+            employeeElement.appendChild(hourDiff);
+
+            var totalShifts = xmlDoc.createElement("totalShifts");
+            totalShifts.textContent = employee.totalShifts;
+            employeeElement.appendChild(totalShifts);
+
+            var shifts = xmlDoc.createElement("shifts");
+            employee.shifts.forEach(function(shift) {
+                var shiftElement = xmlDoc.createElement("shift");
+                shiftElement.textContent = shift;
+                shifts.appendChild(shiftElement);
+            });
+            employeeElement.appendChild(shifts);
+
+            root.appendChild(employeeElement);
+        });
+
+        xmlDoc.appendChild(root);
+
+        var serializer = new XMLSerializer();
+        var xmlString = serializer.serializeToString(xmlDoc);
+        var blob = new Blob([xmlString], { type: "text/xml" });
+
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "employees.xml";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     }
 
     function loadEmployees() {
-        const transaction = db.transaction(['employees'], 'readonly');
-        const objectStore = transaction.objectStore('employees');
-        const request = objectStore.getAll();
+        fetch('employees.xml')
+            .then(response => response.text())
+            .then(data => {
+                var parser = new DOMParser();
+                var xmlDoc = parser.parseFromString(data, "text/xml");
+                var employees = xmlDoc.getElementsByTagName("employee");
 
-        request.onsuccess = function(event) {
-            const employees = event.target.result;
-            for (let i = 0; i < employees.length; i++) {
-                const employee = employees[i];
-                addEmployee(employee.employeeId, employee.employeeName, employee.employeeJob, employee.requiredHours);
-                var table = document.getElementById('employeeTable').getElementsByTagName('tbody')[0];
-                var row = table.rows[table.rows.length - 2]; // الصف الفعلي الأخير قبل الصف المخفي
-                row.cells[34].querySelector('.total-shifts').innerHTML = employee.totalShifts;
-                row.cells[36].querySelector('.actual-hours').innerHTML = employee.actualHours;
-                row.cells[37].querySelector('.hour-diff').innerHTML = employee.hourDiff;
+                for (var i = 0; i < employees.length; i++) {
+                    var employee = employees[i];
+                    var employeeId = employee.getElementsByTagName("employeeId")[0].textContent;
+                    var employeeName = employee.getElementsByTagName("employeeName")[0].textContent;
+                    var employeeJob = employee.getElementsByTagName("employeeJob")[0].textContent;
+                    var requiredHours = employee.getElementsByTagName("requiredHours")[0].textContent;
+                    var actualHours = employee.getElementsByTagName("actualHours")[0].textContent;
+                    var hourDiff = employee.getElementsByTagName("hourDiff")[0].textContent;
+                    var totalShifts = employee.getElementsByTagName("totalShifts")[0].textContent;
 
-                for (var j = 0; j < employee.shifts.length; j++) {
-                    row.cells[j + 3].innerHTML = employee.shifts[j];
-                    if (employee.shifts[j] === 'D') {
-                        row.cells[j + 3].classList.add('green');
-                    } else if (employee.shifts[j] === 'N') {
-                        row.cells[j + 3].classList.add('red');
+                    addEmployee(employeeId, employeeName, employeeJob, requiredHours);
+                    var table = document.getElementById('employeeTable').getElementsByTagName('tbody')[0];
+                    var row = table.rows[table.rows.length - 2]; // الصف الفعلي الأخير قبل الصف المخفي
+                    row.cells[34].querySelector('.total-shifts').innerHTML = totalShifts;
+                    row.cells[36].querySelector('.actual-hours').innerHTML = actualHours;
+                    row.cells[37].querySelector('.hour-diff').innerHTML = hourDiff;
+
+                    var shifts = employee.getElementsByTagName("shift");
+                    for (var j = 0; j < shifts.length; j++) {
+                        row.cells[j + 3].innerHTML = shifts[j].textContent;
+                        if (shifts[j].textContent === 'D') {
+                            row.cells[j + 3].classList.add('green');
+                        } else if (shifts[j].textContent === 'N') {
+                            row.cells[j + 3].classList.add('red');
+                        }
                     }
                 }
-            }
-        };
-
-        request.onerror = function(event) {
-            console.error('Error loading employees: ', event.target.errorCode);
-        };
+            })
+            .catch(error => console.error('Error loading XML:', error));
     }
 
     function exportToXML() {
-        const transaction = db.transaction(['employees'], 'readonly');
-        const objectStore = transaction.objectStore('employees');
-        const request = objectStore.getAll();
-
-        request.onsuccess = function(event) {
-            const employees = event.target.result;
-            var xmlDoc = document.implementation.createDocument("", "", null);
-            var root = xmlDoc.createElement("employees");
-
-            for (let i = 0; i < employees.length; i++) {
-                const employee = employees[i];
-                var employeeElement = xmlDoc.createElement("employee");
-
-                var employeeId = xmlDoc.createElement("employeeId");
-                employeeId.textContent = employee.employeeId;
-                employeeElement.appendChild(employeeId);
-
-                var employeeName = xmlDoc.createElement("employeeName");
-                employeeName.textContent = employee.employeeName;
-                employeeElement.appendChild(employeeName);
-
-                var employeeJob = xmlDoc.createElement("employeeJob");
-                employeeJob.textContent = employee.employeeJob;
-                employeeElement.appendChild(employeeJob);
-
-                var requiredHours = xmlDoc.createElement("requiredHours");
-                requiredHours.textContent = employee.requiredHours;
-                employeeElement.appendChild(requiredHours);
-
-                var actualHours = xmlDoc.createElement("actualHours");
-                actualHours.textContent = employee.actualHours;
-                employeeElement.appendChild(actualHours);
-
-                var hourDiff = xmlDoc.createElement("hourDiff");
-                hourDiff.textContent = employee.hourDiff;
-                employeeElement.appendChild(hourDiff);
-
-                var totalShifts = xmlDoc.createElement("totalShifts");
-                totalShifts.textContent = employee.totalShifts;
-                employeeElement.appendChild(totalShifts);
-
-                var shifts = xmlDoc.createElement("shifts");
-                for (var j = 0; j < employee.shifts.length; j++) {
-                    var shift = xmlDoc.createElement("shift");
-                    shift.textContent = employee.shifts[j];
-                    shifts.appendChild(shift);
-                }
-                employeeElement.appendChild(shifts);
-
-                root.appendChild(employeeElement);
-            }
-
-            xmlDoc.appendChild(root);
-
-            var serializer = new XMLSerializer();
-            var xmlString = serializer.serializeToString(xmlDoc);
-            var blob = new Blob([xmlString], { type: "text/xml" });
-
-            var a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = "employees.xml";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        };
-
-        request.onerror = function(event) {
-            console.error('Error exporting to XML: ', event.target.errorCode);
-        };
+        saveEmployees();
     }
 
     function importXML() {
@@ -486,16 +448,6 @@
                     row.cells[j + 3].classList.add('red');
                 }
             }
-            saveEmployee({
-                employeeId,
-                employeeName,
-                employeeJob,
-                requiredHours,
-                totalShifts,
-                actualHours,
-                hourDiff,
-                shifts: Array.from(shifts).map(shift => shift.textContent)
-            });
         }
     }
 
